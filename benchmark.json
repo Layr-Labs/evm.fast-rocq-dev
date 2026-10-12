@@ -1,0 +1,29 @@
+{
+  "schemaVersion": 2,
+  "name": "evm-fast-rocq",
+  "tracks": [
+    {
+      "name": "rocq",
+      "description": "Prove in Rocq that submitted RISC-V bytes satisfy the fixed init-e Certificate for the Pancake EVM guest within a step bound K, checked by recursive kernel replay, and minimize K. The initial submission claims infinity.",
+      "category": "rocq",
+      "direction": "-",
+      "editablePaths": [
+        "submission"
+      ],
+      "setupCommand": [
+        "bash",
+        "scripts/setup.sh"
+      ],
+      "benchmarkCommand": [
+        "python3",
+        "scripts/run.py"
+      ],
+      "scorePath": "scripts/score.json",
+      "hardware": "Official runs: blacksmith-32vcpu-ubuntu-2404 (128 GB RAM), on the runner with Bubblewrap user, PID and network namespaces. Each verifier stage is limited to 21,600 s and 112 GiB of address space. Upstream: the trusted build peaked at 30.3 GiB RSS, and the baseline kernel stage took over 3 hours but under 6. Cold setup builds OCaml, Rocq and the trusted library with dune -j 1; its total time is not yet measured (23-hour job timeout).",
+      "runner": {
+        "provider": "github-actions",
+        "workflow": "benchmark.yml"
+      }
+    }
+  ]
+}

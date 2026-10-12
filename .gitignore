@@ -9,3 +9,6 @@ __pycache__/
 .lia.cache
 .nra.cache
 .nia.cache
+
+/scripts/score.json
+/scripts/score.tmp
