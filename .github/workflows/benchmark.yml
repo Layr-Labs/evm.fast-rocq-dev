@@ -1,0 +1,77 @@
+name: Benchmark
+on:
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  benchmark:
+    # 128 GB host. Upstream's trusted build peaked at 30.3 GiB RSS (31,771,772 KiB in
+    # docs/baseline-certificate-build-audit.json). verifier/verify.py allows each stage 112 GiB of
+    # address space and the kernel stage's RSS is unrecorded, so the host can hold the whole cap.
+    # The verifier needs only Bubblewrap namespaces, not the Landlock/systemd guest the Lean harness
+    # boots, so it runs on the runner itself.
+    runs-on: blacksmith-32vcpu-ubuntu-2404
+    # A cold run builds with dune -j 1 (the certificate build session alone took 7,840 s upstream;
+    # the whole build is untimed), runs the operator kernel checks and the negative CLI cases, then
+    # verifies with 21,600 s per stage (the baseline kernel stage needed more than 10,800 s
+    # upstream). Stay under the 24-hour job token.
+    timeout-minutes: 1380
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          ref: ${{ github.sha }}
+          persist-credentials: false
+      - name: Runner resources
+        run: nproc; free -g; df -h "${GITHUB_WORKSPACE}"; uname -r
+      # Ubuntu 24.04's AppArmor policy denies unprivileged user namespaces, which every verifier
+      # stage creates through bwrap --unshare-all. The runner is an ephemeral single-job VM, and the
+      # Bubblewrap sandbox itself is unchanged.
+      - name: Allow Bubblewrap user namespaces
+        run: |
+          if [[ -e /proc/sys/kernel/apparmor_restrict_unprivileged_userns ]]; then
+            sudo sysctl -w kernel.apparmor_restrict_unprivileged_userns=0
+          fi
+      - uses: actions/cache/restore@0057852bfaa89a56745cba8c7296529d2fc39830 # v4
+        id: cache
+        with:
+          path: |
+            ~/.opam
+            _build
+            .artifacts/verifier-seal.json
+          key: rocq-verifier-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('dune', 'dune-project', 'reference-lock.json', '.gitmodules', 'theories/**', 'verifier/**', 'scripts/setup.sh', 'scripts/seal_verifier.py', 'scripts/test_verifier_cli.py') }}-v1
+      - name: Setup
+        run: bash scripts/setup.sh
+      # Save trusted builds before candidate verification, even if the proof fails.
+      # Only the default branch publishes caches shared with submission branches.
+      - uses: actions/cache/save@0057852bfaa89a56745cba8c7296529d2fc39830 # v4
+        if: steps.cache.outputs.cache-hit != 'true' && github.ref_name == github.event.repository.default_branch
+        continue-on-error: true
+        with:
+          path: |
+            ~/.opam
+            _build
+            .artifacts/verifier-seal.json
+          key: ${{ steps.cache.outputs.cache-primary-key }}
+      - name: Benchmark
+        run: /usr/bin/time -v -o .artifacts/benchmark.time python3 scripts/run.py
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: benchmark-score
+          path: scripts/score.json
+          if-no-files-found: error
+      - name: Upload verifier logs
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: verifier-logs
+          include-hidden-files: true
+          path: |
+            .artifacts/setup/*.log
+            .artifacts/setup/*.time
+            .artifacts/setup/reference-audit.json
+            .artifacts/setup/negative-replay/*.log
+            .artifacts/setup/negative-replay/results.json
+            .artifacts/benchmark.time
+            .artifacts/yukon/*/replay/*.log
+            .artifacts/yukon/*/replay/result.json
+          if-no-files-found: ignore

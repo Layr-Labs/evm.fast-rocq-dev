@@ -1,0 +1,5 @@
+#!/bin/sh
+# RTK's proxy mode runs a command without filtering its output; upstream scripts call only that.
+[ "$1" = proxy ] || { echo "rtk shim: only 'rtk proxy' is supported" >&2; exit 2; }
+shift
+exec "$@"
