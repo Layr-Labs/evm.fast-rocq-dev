@@ -48,6 +48,8 @@
   `result.json`; otherwise `scripts/run.py` exits nonzero and writes no score. `metrics` records
   the claim, the ROM SHA-256 and size, the operator seal SHA-256, the kernel axioms and the
   harness commit.
+- `metrics.verifySeconds` is the verifier's wall time, and `metrics.verifyRunner` describes the
+  runner. They are recorded for information only and do not affect the score yet.
 
 ## Verification
 
