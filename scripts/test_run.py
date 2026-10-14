@@ -1,6 +1,9 @@
 """Score mapping and fail-closed checks for scripts/run.py, with the verifier mocked."""
 from __future__ import annotations
 
+import contextlib
+import io
+import itertools
 import json
 from pathlib import Path
 import subprocess
@@ -14,6 +17,18 @@ import run  # noqa: E402
 
 ROM_SHA = "a" * 64
 SEAL_SHA = "b" * 64
+RUNNER = {"name": "blacksmith-1", "cpuModel": "AMD EPYC 9454P 48-Core Processor", "cpuCount": 32}
+# The fake clock advances by 3600.27 s per verifier run.
+TIMING = {"verifySeconds": 3600.3, "verifyRunner": RUNNER}
+# What scripts/run.py wrote before verifier timing was recorded.
+LEGACY = {
+    "infinity": '{"score": 9007199254740991, "metrics": {"claim": "infinity", "finite": false, "prover": "rocq", '
+                f'"verification": "rocqchk", "romSha256": "{ROM_SHA}", "romBytes": 950344, "sealSha256": "{SEAL_SHA}", '
+                '"axioms": ["Stdlib.Logic.Classical_Prop.classic"], "contractCommit": "abc123"}}\n',
+    1234: '{"score": 1234, "metrics": {"claim": 1234, "finite": true, "prover": "rocq", "verification": "rocqchk", '
+          f'"romSha256": "{ROM_SHA}", "romBytes": 950344, "sealSha256": "{SEAL_SHA}", '
+          '"axioms": ["Stdlib.Logic.Classical_Prop.classic"], "contractCommit": "abc123"}}\n',
+}
 
 
 def result(literal="infinity", **changes):
@@ -29,11 +44,24 @@ class Harness(unittest.TestCase):
         self.root = Path(temporary.name)
         (self.root / "scripts").mkdir()
         self.score = self.root / "scripts" / "score.json"
+        cpuinfo = self.root / "cpuinfo"
+        cpuinfo.write_text(f"processor\t: 0\nmodel name\t: {RUNNER['cpuModel']}\n\nprocessor\t: 1\nmodel name\t: x\n")
         for p in [patch.object(run, "ROOT", self.root), patch.object(run, "SUBMISSION", self.root / "submission"),
                   patch.object(run, "WORK", self.root / ".artifacts" / "yukon"),
-                  patch.object(run.sys, "platform", "linux")]:
+                  patch.object(run.sys, "platform", "linux"),
+                  patch.object(run, "CPUINFO", cpuinfo), patch.object(run.os, "cpu_count", return_value=32),
+                  patch.dict(run.os.environ, {"RUNNER_NAME": "blacksmith-1"}),
+                  patch.object(run.time, "monotonic", side_effect=itertools.cycle([100.0, 3700.27]))]:
             p.start()
             self.addCleanup(p.stop)
+        self.stderr = io.StringIO()
+        redirect = contextlib.redirect_stderr(self.stderr)
+        redirect.__enter__()
+        self.addCleanup(redirect.__exit__, None, None, None)
+
+    def timing_logged(self):
+        lines = [line for line in self.stderr.getvalue().splitlines() if line.startswith("Verifier timing: ")]
+        return [json.loads(line.removeprefix("Verifier timing: ")) for line in lines]
 
     def verifier(self, written, returncode=0, stdout="VERIFIED\n"):
         def fake(command, **kwargs):
@@ -65,7 +93,26 @@ class Harness(unittest.TestCase):
         self.assertEqual(scored["metrics"], {
             "claim": "infinity", "finite": False, "prover": "rocq", "verification": "rocqchk",
             "romSha256": ROM_SHA, "romBytes": 950344, "sealSha256": SEAL_SHA,
-            "axioms": ["Stdlib.Logic.Classical_Prop.classic"], "contractCommit": "abc123"})
+            "axioms": ["Stdlib.Logic.Classical_Prop.classic"], "contractCommit": "abc123", **TIMING})
+
+    def test_score_bytes_unchanged_and_timing_appended(self):
+        for K, legacy in LEGACY.items():
+            self.run_main(result("infinity" if K == "infinity" else f"finite {K}"))
+            text = self.score.read_text()
+            self.assertEqual(text, legacy[:-len("}}\n")] + ", " + json.dumps(TIMING)[1:] + "}\n")
+            self.assertTrue(text.startswith(f'{{"score": {2**53 - 1 if K == "infinity" else K}, "metrics": '))
+
+    def test_verify_seconds_is_positive_float(self):
+        with patch.object(run.time, "monotonic", side_effect=[5.0, 5.26]):
+            metrics = self.run_main(result("finite 7"))["metrics"]
+        self.assertIsInstance(metrics["verifySeconds"], float)
+        self.assertEqual(metrics["verifySeconds"], 0.3)
+        self.assertNotIn("verifyCpuSeconds", metrics)
+
+    def test_runner_info(self):
+        self.assertEqual(run.runner(), RUNNER)
+        with patch.object(run, "CPUINFO", self.root / "missing"), patch.dict(run.os.environ, {"RUNNER_NAME": ""}):
+            self.assertEqual(run.runner(), {"cpuCount": 32})
 
     def test_finite_k_is_the_score(self):
         for K in [0, 123, run.FINITE_LIMIT - 1]:
@@ -89,6 +136,7 @@ class Harness(unittest.TestCase):
         self.rejected(None)
         self.rejected("not json")
         self.rejected("[]")
+        self.assertEqual(self.timing_logged(), [TIMING] * 7)
 
     def test_unverified_result_fails_closed(self):
         for written in [result(verified=False), result(verified="true"), result(kernel_exit=1),
@@ -102,6 +150,7 @@ class Harness(unittest.TestCase):
                 patch.object(run.subprocess, "run", side_effect=AssertionError("verifier ran")):
             run.main()
         self.assertFalse(self.score.exists())
+        self.assertEqual(self.timing_logged(), [])
 
 
 if __name__ == "__main__":

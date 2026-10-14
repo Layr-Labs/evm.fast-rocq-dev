@@ -13,12 +13,14 @@ from pathlib import Path
 import re
 import subprocess
 import sys
+import time
 import uuid
 
 ROOT = Path(__file__).resolve().parent.parent
 SUBMISSION = ROOT / "submission"
 WORK = ROOT / ".artifacts" / "yukon"
 SWITCH = "rocq-init-e"
+CPUINFO = Path("/proc/cpuinfo")
 # Yukon scores are doubles and come back with 15 significant digits, so this sentinel reads back as
 # 9007199254740990, as does every value from FINITE_LIMIT up. A finite K must stay below FINITE_LIMIT
 # to remain distinguishable from infinity.
@@ -30,21 +32,41 @@ TIMEOUT_SECONDS = 21_600
 HEX64 = re.compile(r"[0-9a-f]{64}")
 
 
-def run_verifier(output: Path) -> dict:
+def runner() -> dict:
+    """Non-secret details of the machine that ran the verifier, for comparing verifySeconds."""
+    info = {}
+    if os.environ.get("RUNNER_NAME"):
+        info["name"] = os.environ["RUNNER_NAME"]
+    try:
+        with CPUINFO.open() as cpuinfo:
+            model = next((line.split(":", 1)[1].strip() for line in cpuinfo if line.startswith("model name")), "")
+    except OSError:
+        model = ""
+    if model:
+        info["cpuModel"] = model
+    info["cpuCount"] = os.cpu_count()
+    return info
+
+
+def run_verifier(output: Path) -> tuple[dict, dict]:
     command = ["opam", "exec", f"--switch={SWITCH}", "--", "python3", str(ROOT / "verifier" / "verify.py"),
                str(SUBMISSION), "--output", str(output), "--timeout", str(TIMEOUT_SECONDS)]
+    started = time.monotonic()
     process = subprocess.run(command, stdout=subprocess.PIPE, text=True, cwd=ROOT,
                              env=dict(os.environ, PYTHONDONTWRITEBYTECODE="1"))
+    # Informational only: verification time does not affect the score. CPU time is not recorded:
+    # RUSAGE_CHILDREN does not count the verifier's stages inside Bubblewrap.
+    timing = {"verifySeconds": round(time.monotonic() - started, 1), "verifyRunner": runner()}
     print(process.stdout, end="")
     if process.returncode != 0 or process.stdout.splitlines()[-1:] != ["VERIFIED"]:
-        return {"status": "rejected", "returncode": process.returncode}
+        return {"status": "rejected", "returncode": process.returncode}, timing
     try:
         result = json.loads((output / "result.json").read_text())
     except (OSError, ValueError):
-        return {"status": "failed", "reason": "verifier wrote no readable result.json"}
+        return {"status": "failed", "reason": "verifier wrote no readable result.json"}, timing
     if not isinstance(result, dict):
-        return {"status": "failed", "reason": "malformed result.json"}
-    return dict(result, status="verified")
+        return {"status": "failed", "reason": "malformed result.json"}, timing
+    return dict(result, status="verified"), timing
 
 
 def claim_of(result: dict) -> str | int:
@@ -65,8 +87,9 @@ def main() -> None:
         raise SystemExit("Verification requires Linux and Bubblewrap")
     work = WORK / uuid.uuid4().hex
     work.mkdir(parents=True)
-    report = run_verifier(work / "replay")
+    report, timing = run_verifier(work / "replay")
     print(json.dumps(report, sort_keys=True))
+    print(f"Verifier timing: {json.dumps(timing)}", file=sys.stderr)
     if (report.get("status") != "verified" or report.get("verified") is not True
             or report.get("kernel_exit") != 0):
         raise SystemExit(f"Verifier did not accept the submission: {report.get('status')}")
@@ -84,7 +107,7 @@ def main() -> None:
     metrics = {"claim": claim, "finite": claim != "infinity", "prover": "rocq", "verification": "rocqchk",
                "romSha256": report["rom_sha256"], "romBytes": report.get("rom_bytes"),
                "sealSha256": report["seal_sha256"], "axioms": report.get("axioms"),
-               "contractCommit": contract}
+               "contractCommit": contract, **timing}
     temporary = score_path.with_suffix(".tmp")
     temporary.write_text(json.dumps({"score": score, "metrics": metrics}) + "\n")
     temporary.replace(score_path)
