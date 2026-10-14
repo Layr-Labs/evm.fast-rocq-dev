@@ -11,3 +11,4 @@ Definition certificate : Certificate
  (Build_Submission submittedCode claimedScore (anchorPc submission)
   (names submission) (first submission) (extra submission)) claimedScore.
 Proof. rewrite submitted_code_binding; exact baseline_certificate. Qed.
+
