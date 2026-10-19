@@ -5,7 +5,8 @@ runner host, outside any verifier sandbox, and moves K into the high digits so a
 wins and time only breaks ties at equal K. At equal K a submission must verify at least 5% faster
 than the record read when it finishes; otherwise it takes the record's score, ties, and is not
 promoted, since Yukon promotes strict improvements only. Infinity is left as run.py wrote it. If
-the record cannot be read, the time digits are 9999, which never wins a tie.
+the record cannot be read, the time digits are 9999, which never wins a tie. A K whose score would
+read back as infinity is rejected.
 """
 from __future__ import annotations
 
@@ -33,8 +34,7 @@ NETWORK_ERRORS = (OSError, http.client.HTTPException, ValueError)
 
 
 def encode(k: int, minutes: int) -> int:
-    # From K of about 9e11 the score would read back as infinity; all such bounds tie just below it.
-    return min(k * SCALE + (minutes if k < UNTIMED_K else 0), FINITE_LIMIT - 1)
+    return k * SCALE + (minutes if k < UNTIMED_K else 0)
 
 
 def timed_score(k: int, seconds: float, record: dict | None) -> int:
@@ -86,6 +86,8 @@ def main() -> None:
     k = result["metrics"]["claim"]
     if k == "infinity":
         return
+    if k * SCALE >= FINITE_LIMIT:
+        raise SystemExit(f"K = {k} is too large to score: K * 10^4 would read back from Yukon as infinity")
     [track] = json.loads((ROOT / "benchmark.json").read_text())["tracks"]
     record = current_record(os.environ.get("YUKON_API_URL") or DEFAULT_API, os.environ["GITHUB_REPOSITORY"],
                             track["name"])
