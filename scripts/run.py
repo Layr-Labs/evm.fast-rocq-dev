@@ -54,8 +54,8 @@ def run_verifier(output: Path) -> tuple[dict, dict]:
     started = time.monotonic()
     process = subprocess.run(command, stdout=subprocess.PIPE, text=True, cwd=ROOT,
                              env=dict(os.environ, PYTHONDONTWRITEBYTECODE="1"))
-    # Informational only: verification time does not affect the score. CPU time is not recorded:
-    # RUSAGE_CHILDREN does not count the verifier's stages inside Bubblewrap.
+    # Official runs add verifySeconds to the score afterwards (scripts/time_score.py). CPU time is
+    # not recorded: RUSAGE_CHILDREN does not count the verifier's stages inside Bubblewrap.
     timing = {"verifySeconds": round(time.monotonic() - started, 1), "verifyRunner": runner()}
     print(process.stdout, end="")
     if process.returncode != 0 or process.stdout.splitlines()[-1:] != ["VERIFIED"]:
