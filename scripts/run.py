@@ -16,16 +16,17 @@ import sys
 import time
 import uuid
 
+import time_score
+
 ROOT = Path(__file__).resolve().parent.parent
 SUBMISSION = ROOT / "submission"
 WORK = ROOT / ".artifacts" / "yukon"
 SWITCH = "rocq-init-e"
 CPUINFO = Path("/proc/cpuinfo")
 # Yukon scores are doubles and come back with 15 significant digits, so this sentinel reads back as
-# 9007199254740990, as does every value from FINITE_LIMIT up. A finite K must stay below FINITE_LIMIT
-# to remain distinguishable from infinity.
+# 9007199254740990. A finite K is scored with its verification time (scripts/time_score.py) and must
+# stay at most time_score.LARGEST_K to remain distinguishable from infinity.
 INFINITY_SCORE = 2**53 - 1
-FINITE_LIMIT = 9_007_199_254_740_985
 # Per-stage limit of upstream's accepted baseline replay. Its kernel stage exceeded the default
 # 10,800 s and passed within 21,600 s (docs/PORT-STATUS.md).
 TIMEOUT_SECONDS = 21_600
@@ -54,8 +55,8 @@ def run_verifier(output: Path) -> tuple[dict, dict]:
     started = time.monotonic()
     process = subprocess.run(command, stdout=subprocess.PIPE, text=True, cwd=ROOT,
                              env=dict(os.environ, PYTHONDONTWRITEBYTECODE="1"))
-    # Official runs add verifySeconds to the score afterwards (scripts/time_score.py). CPU time is
-    # not recorded: RUSAGE_CHILDREN does not count the verifier's stages inside Bubblewrap.
+    # The score carries these minutes; official runs then apply the record rule (scripts/time_score.py).
+    # CPU time is not recorded: RUSAGE_CHILDREN does not count the verifier's stages inside Bubblewrap.
     timing = {"verifySeconds": round(time.monotonic() - started, 1), "verifyRunner": runner()}
     print(process.stdout, end="")
     if process.returncode != 0 or process.stdout.splitlines()[-1:] != ["VERIFIED"]:
@@ -99,10 +100,10 @@ def main() -> None:
     claim = claim_of(report)
     if claim == "infinity":
         score = INFINITY_SCORE
-    elif claim < FINITE_LIMIT:
-        score = claim
+    elif claim <= time_score.LARGEST_K:
+        score = time_score.encode(claim, time_score.minutes(timing["verifySeconds"]))
     else:
-        raise SystemExit("K exceeds Yukon's exact integer range")
+        raise SystemExit("K exceeds the range a Yukon score can hold with verification time")
     contract = subprocess.check_output(["git", "rev-parse", "HEAD"], text=True, cwd=ROOT).strip()
     metrics = {"claim": claim, "finite": claim != "infinity", "prover": "rocq", "verification": "rocqchk",
                "romSha256": report["rom_sha256"], "romBytes": report.get("rom_bytes"),

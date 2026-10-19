@@ -95,12 +95,15 @@ class Harness(unittest.TestCase):
             "romSha256": ROM_SHA, "romBytes": 950344, "sealSha256": SEAL_SHA,
             "axioms": ["Stdlib.Logic.Classical_Prop.classic"], "contractCommit": "abc123", **TIMING})
 
-    def test_score_bytes_unchanged_and_timing_appended(self):
+    def test_score_carries_minutes_and_timing_is_appended(self):
+        # 3600.3 s rounds up to 61 minutes, below K's digits.
         for K, legacy in LEGACY.items():
             self.run_main(result("infinity" if K == "infinity" else f"finite {K}"))
             text = self.score.read_text()
-            self.assertEqual(text, legacy[:-len("}}\n")] + ", " + json.dumps(TIMING)[1:] + "}\n")
-            self.assertTrue(text.startswith(f'{{"score": {2**53 - 1 if K == "infinity" else K}, "metrics": '))
+            score = 2**53 - 1 if K == "infinity" else K * 10_000 + 61
+            expected = legacy.replace(f'"score": {2**53 - 1 if K == "infinity" else K},', f'"score": {score},', 1)
+            self.assertEqual(text, expected[:-len("}}\n")] + ", " + json.dumps(TIMING)[1:] + "}\n")
+            self.assertTrue(text.startswith(f'{{"score": {score}, "metrics": '))
 
     def test_verify_seconds_is_positive_float(self):
         with patch.object(run.time, "monotonic", side_effect=[5.0, 5.26]):
@@ -114,14 +117,15 @@ class Harness(unittest.TestCase):
         with patch.object(run, "CPUINFO", self.root / "missing"), patch.dict(run.os.environ, {"RUNNER_NAME": ""}):
             self.assertEqual(run.runner(), {"cpuCount": 32})
 
-    def test_finite_k_is_the_score(self):
-        for K in [0, 123, run.FINITE_LIMIT - 1]:
+    def test_finite_k_is_scored_with_its_minutes(self):
+        largest = run.time_score.LARGEST_K
+        for K, score in [(0, 61), (123, 1_230_061), (largest, largest * 10_000)]:
             scored = self.run_main(result(f"finite {K}"))
             self.assertEqual((scored["score"], scored["metrics"]["claim"], scored["metrics"]["finite"]),
-                             (K, K, True))
+                             (score, K, True))
 
     def test_k_at_rounding_limit_fails_closed(self):
-        for K in [run.FINITE_LIMIT, 2**53 - 1, 2**64]:
+        for K in [run.time_score.LARGEST_K + 1, 2**53 - 1, 2**64]:
             self.rejected(result(f"finite {K}"))
 
     def test_malformed_score_literal_fails_closed(self):

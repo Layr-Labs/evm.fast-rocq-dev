@@ -117,12 +117,11 @@ class MainTest(unittest.TestCase):
         self.assertEqual(result, {"score": (K - 5) * 10_000 + 10, "metrics": metrics})
         self.assertEqual([call.args for call in calls], [("https://api-dev", "Example/prover-dev", "main")])
 
-    def test_rejects_a_k_whose_score_would_read_back_as_infinity(self):
-        largest = (time_score.FINITE_LIMIT - 1) // 10_000
-        self.assertLess(float(f"{largest * 10_000:.15g}"), 9_007_199_254_740_990)
-        self.assertEqual(self.run_main({"claim": largest, "verifySeconds": 1.0}, None)[0]["score"], largest * 10_000)
-        with self.assertRaises(SystemExit):
-            self.run_main({"claim": largest + 1, "verifySeconds": 1.0}, None)
+    def test_the_largest_k_reads_back_finite(self):
+        self.assertEqual(time_score.LARGEST_K, 900_719_925_474)
+        largest = time_score.encode(time_score.LARGEST_K, 9_999)
+        self.assertLess(float(f"{largest:.15g}"), 9_007_199_254_740_990)
+        self.assertGreaterEqual(float(f"{time_score.encode(time_score.LARGEST_K + 1, 0):.15g}"), 9_007_199_254_740_990)
 
     def test_infinity_skips_the_lookup_and_keeps_run_py_score(self):
         metrics = {"claim": "infinity", "finite": False, "verifySeconds": 1.0}
