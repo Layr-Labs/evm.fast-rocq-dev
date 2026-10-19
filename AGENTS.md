@@ -35,21 +35,32 @@
 
 ## Score
 
-- `score` in `scripts/score.json` is the certified step bound `K` from `claim.json`; lower is
-  better. Ties do not improve the incumbent.
+- `scripts/run.py` scores the certified step bound `K` from `claim.json` with its verification
+  time: `score = K * 10^4 + verification minutes` (rounded up, at most 9999), so a smaller `K`
+  always wins and time only breaks ties at equal `K`; lower is better. Ties do not improve the
+  incumbent.
+- Official runs then apply the record rule (`scripts/time_score.py`, run by the workflow on the
+  host): at equal `K` a submission must verify at least 5% faster than the `verifySeconds` of the
+  record read when it finishes; otherwise it takes the record's score and ties. If the record
+  cannot be read, the minutes are 9999 and the step logs a warning. `YUKON_API_URL` (repository
+  variable, default `https://api.yukon.org`) names the API. Local runs skip this step, so their
+  minutes are only a rough indicator.
 - `{"K":"infinity"}` is scored as `9007199254740991` (2^53 − 1). Infinity still requires a finite
   matching Halt for every covered input. The initial submission claims infinity, so any accepted
   finite `K` improves it.
 - Yukon stores scores as doubles and returns them with 15 significant digits, so the infinity
   score reads back as `9007199254740990`, as does every value from `9007199254740985` up. A
-  finite `K` of `9007199254740985` or more is rejected, and a finite `K` of 10^15 or more may be
-  shown and compared rounded to 15 significant digits.
+  finite `K` of `900719925475` or more is rejected, since `K * 10^4` would read back as
+  infinity. A `K` of 10^11 or more carries no minutes, since they would round into `K`, so equal
+  bounds that large stay tied.
+- Scores, as `yukon` prints them, read as `K = floor(score / 10^4)`, with the verification
+  minutes in the last four digits.
 - A score is written only when the verifier prints `VERIFIED` and writes a verified
   `result.json`; otherwise `scripts/run.py` exits nonzero and writes no score. `metrics` records
   the claim, the ROM SHA-256 and size, the operator seal SHA-256, the kernel axioms and the
   harness commit.
 - `metrics.verifySeconds` is the verifier's wall time, and `metrics.verifyRunner` describes the
-  runner. They are recorded for information only and do not affect the score yet.
+  runner.
 
 ## Verification
 

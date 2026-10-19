@@ -54,6 +54,11 @@ jobs:
           key: ${{ steps.cache.outputs.cache-primary-key }}
       - name: Benchmark
         run: /usr/bin/time -v -o .artifacts/benchmark.time python3 scripts/run.py
+      # Outside the verifier sandbox: reads the current record from Yukon's public API.
+      - name: Add verification time to the score
+        env:
+          YUKON_API_URL: ${{ vars.YUKON_API_URL }}
+        run: python3 scripts/time_score.py
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
           name: benchmark-score
