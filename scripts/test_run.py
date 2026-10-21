@@ -87,9 +87,9 @@ class Harness(unittest.TestCase):
             self.run_main(written, **kwargs)
         self.assertFalse(self.score.exists())
 
-    def test_infinity_scores_max_safe_integer(self):
+    def test_infinity_scores_the_exact_infinity_pair(self):
         scored = self.run_main(result())
-        self.assertEqual(scored["score"], 2**53 - 1)
+        self.assertEqual((scored["score"], scored["scoreExact"]), (1e300, "1" + "0" * 300))
         self.assertEqual(scored["metrics"], {
             "claim": "infinity", "finite": False, "prover": "rocq", "verification": "rocqchk",
             "romSha256": ROM_SHA, "romBytes": 950344, "sealSha256": SEAL_SHA,
@@ -100,10 +100,13 @@ class Harness(unittest.TestCase):
         for K, legacy in LEGACY.items():
             self.run_main(result("infinity" if K == "infinity" else f"finite {K}"))
             text = self.score.read_text()
-            score = 2**53 - 1 if K == "infinity" else K * 10_000 + 61
+            score = '1e+300, "scoreExact": "1' + "0" * 300 + '"' if K == "infinity" else \
+                f'{K * 10_000 + 61}, "scoreExact": "{K * 10_000 + 61}"'
             expected = legacy.replace(f'"score": {2**53 - 1 if K == "infinity" else K},', f'"score": {score},', 1)
             self.assertEqual(text, expected[:-len("}}\n")] + ", " + json.dumps(TIMING)[1:] + "}\n")
             self.assertTrue(text.startswith(f'{{"score": {score}, "metrics": '))
+            scored = json.loads(text)
+            self.assertEqual(scored["score"], float(scored["scoreExact"]))
 
     def test_verify_seconds_is_positive_float(self):
         with patch.object(run.time, "monotonic", side_effect=[5.0, 5.26]):
@@ -119,13 +122,16 @@ class Harness(unittest.TestCase):
 
     def test_finite_k_is_scored_with_its_minutes(self):
         largest = run.time_score.LARGEST_K
-        for K, score in [(0, 61), (123, 1_230_061), (largest, largest * 10_000)]:
+        for K in [0, 123, 2**53 - 1, 10**121, largest]:
             scored = self.run_main(result(f"finite {K}"))
-            self.assertEqual((scored["score"], scored["metrics"]["claim"], scored["metrics"]["finite"]),
-                             (score, K, True))
+            self.assertEqual((scored["scoreExact"], scored["metrics"]["claim"], scored["metrics"]["finite"]),
+                             (str(K * 10_000 + 61), K, True))
+            self.assertEqual(scored["score"], float(scored["scoreExact"]))
+        self.assertEqual(self.run_main(result("finite 123"))["score"], 1_230_061)
+        self.assertEqual(self.run_main(result(f"finite {10**121}"))["score"], 1e125)
 
-    def test_k_at_rounding_limit_fails_closed(self):
-        for K in [run.time_score.LARGEST_K + 1, 2**53 - 1, 2**64]:
+    def test_k_beyond_299_digits_fails_closed(self):
+        for K in [run.time_score.LARGEST_K + 1, 10**300]:
             self.rejected(result(f"finite {K}"))
 
     def test_malformed_score_literal_fails_closed(self):

@@ -1,12 +1,18 @@
-"""Verification time in the score: score = K * 10^4 + verification minutes.
+"""Verification time in the score: scoreExact = K * 10^4 + verification minutes.
 
-K sits in the high digits, so a smaller K always wins and time only breaks ties at equal K.
+The track opts in to Yukon's exact scores (`"exactScores": true` in benchmark.json): Yukon compares
+scoreExact as an exact decimal, and score is the double nearest it. K sits in the high digits, so a
+smaller K always wins and time only breaks ties at equal K, at any size of K.
 scripts/run.py scores every run this way with its own minutes. In official runs the benchmark
 workflow then runs this file on the runner host, outside any verifier sandbox, against the current
 record: at equal K a submission must verify at least 5% faster than the record read when it
-finishes; otherwise it takes the record's score, ties, and is not promoted, since Yukon promotes
-strict improvements only. Infinity is left as run.py wrote it. If the record cannot be read, the
-time digits are 9999, which never wins a tie.
+finishes; otherwise it takes the record's exact score, ties, and is not promoted, since Yukon
+promotes strict improvements only. Infinity is left as run.py wrote it. If the record cannot be
+read, the time digits are 9999, which never wins a tie.
+
+A record without currentBestScoreExact was scored before the track opted in. Its K is then read
+from currentBestMetrics.claim, and at equal K a submission that is not 5% faster gets 9999 minutes
+instead of a copy, which cannot beat the record either.
 """
 from __future__ import annotations
 
@@ -15,6 +21,7 @@ import json
 import math
 import os
 from pathlib import Path
+import re
 import sys
 import time
 import urllib.request
@@ -25,35 +32,50 @@ DEFAULT_API = "https://api.yukon.org"
 SCALE = 10_000
 SLOWEST = SCALE - 1
 MARGIN = 0.95
-# Yukon reads scores back with 15 significant digits. From this K the minutes would round into K,
-# so larger bounds carry no time and equal K stay tied.
-UNTIMED_K = 10**11
-# Every score from 9007199254740985 up reads back from Yukon as infinity, so this is the largest
-# finite K a score can hold.
-LARGEST_K = (9_007_199_254_740_985 - 1) // SCALE
+# Yukon exact scores have at most 299 integer digits, so K * 10^4 + minutes must stay below 10^299.
+LARGEST_K = (10**299 - 1) // SCALE
+# Above every finite score; 1e300 is the double nearest 10^300, as Yukon requires.
+INFINITY = {"score": 1e300, "scoreExact": "1" + "0" * 300}
+RECORD_EXACT = re.compile(r"0|[1-9][0-9]{0,300}")
 NETWORK_ERRORS = (OSError, http.client.HTTPException, ValueError)
 
 
 def encode(k: int, minutes: int) -> int:
-    return k * SCALE + (minutes if k < UNTIMED_K else 0)
+    return k * SCALE + minutes
+
+
+def exact_score(exact: int) -> dict:
+    """score.json's score and scoreExact for an exact integer, with score == float(scoreExact)."""
+    text = str(exact)
+    return {"score": exact if exact <= 2**53 else float(text), "scoreExact": text}
 
 
 def minutes(seconds: float) -> int:
     return min(math.ceil(seconds / 60), SLOWEST)
 
 
-def timed_score(k: int, seconds: float, record: dict | None) -> int:
+def timed_score(k: int, seconds: float, record: dict | None) -> dict:
     """The official score for a verified finite K, given the benchmark's current record."""
     if record is None:
-        return encode(k, SLOWEST)
-    own = encode(k, minutes(seconds))
+        return exact_score(encode(k, SLOWEST))
+    own = exact_score(encode(k, minutes(seconds)))
     best = record.get("currentBestMetrics") or {}
-    if best.get("claim") != k:
-        return own
+    exact = record.get("currentBestScoreExact")
+    if exact is None:
+        if best.get("claim") != k:
+            return own
+        tie = exact_score(encode(k, SLOWEST))
+    elif isinstance(exact, str) and RECORD_EXACT.fullmatch(exact):
+        if int(exact) // SCALE != k:
+            return own
+        tie = exact_score(int(exact))
+    else:
+        print(f"::warning::Unreadable currentBestScoreExact {exact!r}; scoring with 9999 minutes", file=sys.stderr)
+        return exact_score(encode(k, SLOWEST))
     record_seconds = best.get("verifySeconds")
     if isinstance(record_seconds, (int, float)) and seconds <= record_seconds * MARGIN:
         return own
-    return int(record["currentBestScore"])
+    return tie
 
 
 def get_json(url: str) -> dict:
@@ -94,8 +116,8 @@ def main() -> None:
     [track] = json.loads((ROOT / "benchmark.json").read_text())["tracks"]
     record = current_record(os.environ.get("YUKON_API_URL") or DEFAULT_API, os.environ["GITHUB_REPOSITORY"],
                             track["name"])
-    result["score"] = timed_score(k, result["metrics"]["verifySeconds"], record)
-    print(f"Timed score: {result['score']}", file=sys.stderr)
+    result.update(timed_score(k, result["metrics"]["verifySeconds"], record))
+    print(f"Timed score: {result['scoreExact']}", file=sys.stderr)
     temporary = SCORE.with_suffix(".tmp")
     temporary.write_text(json.dumps(result) + "\n")
     temporary.replace(SCORE)

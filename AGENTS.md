@@ -36,25 +36,25 @@
 ## Score
 
 - `scripts/run.py` scores the certified step bound `K` from `claim.json` with its verification
-  time: `score = K * 10^4 + verification minutes` (rounded up, at most 9999), so a smaller `K`
-  always wins and time only breaks ties at equal `K`; lower is better. Ties do not improve the
-  incumbent.
+  time: `scoreExact = K * 10^4 + verification minutes` (rounded up, at most 9999), so a smaller
+  `K` always wins and time only breaks ties at equal `K`; lower is better. Ties do not improve
+  the incumbent.
+- The track opts in to Yukon's exact scores (`"exactScores": true` in `benchmark.json`).
+  `score.json` carries `scoreExact`, a decimal string Yukon compares exactly, and `score`, the
+  double nearest it (a plain integer up to 2^53). Minutes count at every size of `K`. `K` must be
+  below 10^295, since an exact score holds at most 299 integer digits; larger claims are rejected.
 - Official runs then apply the record rule (`scripts/time_score.py`, run by the workflow on the
-  host): at equal `K` a submission must verify at least 5% faster than the `verifySeconds` of the
-  record read when it finishes; otherwise it takes the record's score and ties. If the record
-  cannot be read, the minutes are 9999 and the step logs a warning. `YUKON_API_URL` (repository
-  variable, default `https://api.yukon.org`) names the API. Local runs skip this step, so their
-  minutes are only a rough indicator.
-- `{"K":"infinity"}` is scored as `9007199254740991` (2^53 − 1). Infinity still requires a finite
-  matching Halt for every covered input. The initial submission claims infinity, so any accepted
-  finite `K` improves it.
-- Yukon stores scores as doubles and returns them with 15 significant digits, so the infinity
-  score reads back as `9007199254740990`, as does every value from `9007199254740985` up. A
-  finite `K` of `900719925475` or more is rejected, since `K * 10^4` would read back as
-  infinity. A `K` of 10^11 or more carries no minutes, since they would round into `K`, so equal
-  bounds that large stay tied.
-- Scores, as `yukon` prints them, read as `K = floor(score / 10^4)`, with the verification
-  minutes in the last four digits.
+  host): at equal `K`, read from the record's `currentBestScoreExact`, a submission must verify
+  at least 5% faster than the `verifySeconds` of the record read when it finishes; otherwise it
+  takes the record's exact score and ties. If the record cannot be read, the minutes are 9999
+  and the step logs a warning. A record with no exact score (scored before the opt-in) is matched
+  by its `metrics.claim`, and an equal `K` that is not 5% faster gets 9999 minutes.
+  `YUKON_API_URL` (repository variable, default `https://api.yukon.org`) names the API. Local runs
+  skip this step, so their minutes are only a rough indicator.
+- `{"K":"infinity"}` is scored as `scoreExact` `1` followed by 300 zeros (10^300) with `score`
+  `1e300`, above every finite score. Infinity still requires a finite matching Halt for every
+  covered input. The initial submission claims infinity, so any accepted finite `K` improves it.
+- `K = floor(scoreExact / 10^4)`, with the verification minutes in the last four digits.
 - A score is written only when the verifier prints `VERIFIED` and writes a verified
   `result.json`; otherwise `scripts/run.py` exits nonzero and writes no score. `metrics` records
   the claim, the ROM SHA-256 and size, the operator seal SHA-256, the kernel axioms and the
