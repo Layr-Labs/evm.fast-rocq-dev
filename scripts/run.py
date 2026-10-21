@@ -23,10 +23,6 @@ SUBMISSION = ROOT / "submission"
 WORK = ROOT / ".artifacts" / "yukon"
 SWITCH = "rocq-init-e"
 CPUINFO = Path("/proc/cpuinfo")
-# Yukon scores are doubles and come back with 15 significant digits, so this sentinel reads back as
-# 9007199254740990. A finite K is scored with its verification time (scripts/time_score.py) and must
-# stay at most time_score.LARGEST_K to remain distinguishable from infinity.
-INFINITY_SCORE = 2**53 - 1
 # Per-stage limit of upstream's accepted baseline replay. Its kernel stage exceeded the default
 # 10,800 s and passed within 21,600 s (docs/PORT-STATUS.md).
 TIMEOUT_SECONDS = 21_600
@@ -99,18 +95,19 @@ def main() -> None:
         raise SystemExit("Verified result lacks the ROM or seal SHA-256")
     claim = claim_of(report)
     if claim == "infinity":
-        score = INFINITY_SCORE
+        scored = time_score.INFINITY
     elif claim <= time_score.LARGEST_K:
-        score = time_score.encode(claim, time_score.minutes(timing["verifySeconds"]))
+        scored = time_score.exact_score(time_score.encode(claim, time_score.minutes(timing["verifySeconds"])))
     else:
-        raise SystemExit("K exceeds the range a Yukon score can hold with verification time")
+        raise SystemExit("K must be below 10^295: a Yukon exact score holds at most 299 integer digits, "
+                         "four of them verification minutes")
     contract = subprocess.check_output(["git", "rev-parse", "HEAD"], text=True, cwd=ROOT).strip()
     metrics = {"claim": claim, "finite": claim != "infinity", "prover": "rocq", "verification": "rocqchk",
                "romSha256": report["rom_sha256"], "romBytes": report.get("rom_bytes"),
                "sealSha256": report["seal_sha256"], "axioms": report.get("axioms"),
                "contractCommit": contract, **timing}
     temporary = score_path.with_suffix(".tmp")
-    temporary.write_text(json.dumps({"score": score, "metrics": metrics}) + "\n")
+    temporary.write_text(json.dumps({**scored, "metrics": metrics}) + "\n")
     temporary.replace(score_path)
 
 
