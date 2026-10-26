@@ -27,7 +27,7 @@ jobs:
   warm:
     if: github.ref_name == github.event.repository.default_branch
     runs-on: blacksmith-32vcpu-ubuntu-2404
-    # A cold setup took 6h07m on the dev baseline run.
+    # A cold setup with dune -j 1 took 6h07m on the previous guest's dev baseline run.
     timeout-minutes: 1380
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
