@@ -1,5 +1,21 @@
 # rocq-init-e
 
+## Software guest update
+
+The challenge source now uses the software precompile guest from
+`flamingoponderado/stateless-pancaketh` commit
+`35569814e3fd569fd98cccdf2a9704683d42d2d9`. Its source and literal
+AST are pinned in `source/stateless-pancaketh/Guest/`. The guest performs
+precompiles in Pancake code; its only external calls are `halt` and `trap`.
+The source FFI therefore terminates on every external call, and the old
+accelerator implementation has been removed from the Rocq guest model.
+The updated initial ROM literals are pinned from init-e commit
+`e77282a23cb2d6c71f6add008ac504a32f57cb8f` in
+`source/init-e-baseline/`. The importer checks each source file and the
+native, bitmap, and complete ROM hashes. The accepted certificate described
+below belongs to the previous guest; the Rocq compilation equality and
+certificate must be rebuilt for this ROM.
+
 Rocq port of [original init-e](https://github.com/flamingoponderado/init-e),
 using pinned [Galette](https://github.com/flamingoponderado/galette) and its
 proved Pancake `pan_to_target_compile_semantics` theorem.
@@ -23,7 +39,7 @@ Reference submodules are read-only inputs; Galette is pinned and unmodified.
 The original reduced RISC-V interpreter remains the public target for arbitrary
 admitted ROM submissions. The full-model embedding serves the compiler proof.
 
-The literal guest includes PR25's input arena check. The challenge quantifies
+The pinned software guest includes the input arena check. The challenge quantifies
 over every input with declared gas at most **200,000,000**, retaining the original
 128 MiB input arena and 16-byte framing without an extra input-size premise.
 Score `infinity` still requires an input-dependent **finite matching Halt**;
@@ -44,11 +60,14 @@ rtk proxy git submodule update --init --recursive
 rtk proxy env PYTHONDONTWRITEBYTECODE=1 python3 scripts/audit_reference.py --self-test
 rtk proxy env PYTHONDONTWRITEBYTECODE=1 python3 scripts/import_baseline.py --check
 rtk proxy env PYTHONDONTWRITEBYTECODE=1 python3 scripts/import_baseline_metadata.py --check
-rtk proxy opam exec --switch=rocq-init-e -- dune build -j 1
+rtk proxy opam exec --switch=rocq-init-e -- python3 scripts/check_compilation_checkpoints.py --timeout 60 --budget 600 --keep-going
+timeout -k 5 10800 rtk proxy opam exec --switch=rocq-init-e -- dune build -j 1
 ```
 
 Use the documented opam switch for these commands. The exact compilation proof
-is expensive; a fresh build can recompute it. Do not restart an active build or
+uses separately compiled checkpoints; a fresh build can recompute them.
+The bounded checkpoint runner resumes completed files and reports slow phases.
+See [checkpoint layout and measurements](docs/compilation-speed/README.md). Do not restart an active build or
 run competing compiler/kernel/verifier jobs in a shared checkout.
 `galette-theories` is the relative symlink to the pinned theory sources, allowing
 a single Dune project without modifying Galette. Reference Lean projects are
@@ -57,8 +76,8 @@ exact literal equality is proved; a text-parser compilation is not the AST proof
 
 ## Proof and verifier chain
 
-The imported literal guest AST defines the fixed source semantics, host framing,
-accelerators and observations. SourceOrder preserves behaviour when moving main
+The imported software guest AST defines the fixed source semantics, host framing,
+terminal calls and observations. SourceOrder preserves behaviour when moving main
 to the front. The reduced encoder proof supplies the actual machine configuration.
 The checked bootstrap reaches the native entry for every input, preserving the
 shared-memory oracle. Exact native bytes, headers, bitmap words, source memory,
@@ -69,14 +88,15 @@ resource-limit relaxation using stack maximum 538 below the actual limit
 2,097,104. TargetTotality produces a finite native Halt with the source outcome
 and events; the bootstrap clock shift transports it to the original zeroed
 initial state. The final certificate source composes this chain with concrete
-compilation. Its coherent build and sealed recursive kernel verification passed.
+compilation. The previous baseline passed a coherent build and sealed recursive
+kernel verification; the software guest baseline is being checked.
 Installation, compiler equality and a native starting state are not added
 challenge premises.
 
 The verifier snapshots sanitized ROM/score, candidate sources and sealed trusted
 libraries, compiles inside Bubblewrap, compares the exact module interface and
 recursively checks the kernel context. Existing 18 security unit tests and four
-real negative CLI cases passed. The fresh positive baseline run passed too.
+real negative CLI cases passed. The previous baseline passed positive replay; the software guest replay is pending.
 See [submission protocol](docs/SUBMISSIONS.md) for package contents, operator
 sealing, negative tests and the positive command.
 

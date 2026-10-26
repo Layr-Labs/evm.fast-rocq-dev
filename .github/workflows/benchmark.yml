@@ -11,9 +11,9 @@ jobs:
     # The verifier needs only Bubblewrap namespaces, not the Landlock/systemd guest the Lean harness
     # boots, so it runs on the runner itself.
     runs-on: blacksmith-32vcpu-ubuntu-2404
-    # A cold run builds with dune -j 1 (the certificate build session alone took 7,840 s upstream;
-    # the whole build is untimed), runs the operator kernel checks and the negative CLI cases, then
-    # verifies with 21,600 s per stage (the baseline kernel stage needed more than 10,800 s
+    # A cold run builds with dune -j 8 (the previous guest's -j 1 build took 3h09m-3h12m of a ~6h
+    # cold setup here), runs the operator kernel checks and the negative CLI cases, then verifies
+    # with 21,600 s per stage (the previous baseline's kernel stage needed more than 10,800 s
     # upstream). Stay under the 24-hour job token.
     timeout-minutes: 1380
     steps:

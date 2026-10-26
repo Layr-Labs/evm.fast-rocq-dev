@@ -23,16 +23,16 @@ TIMING = {"verifySeconds": 3600.3, "verifyRunner": RUNNER}
 # What scripts/run.py wrote before verifier timing was recorded.
 LEGACY = {
     "infinity": '{"score": 9007199254740991, "metrics": {"claim": "infinity", "finite": false, "prover": "rocq", '
-                f'"verification": "rocqchk", "romSha256": "{ROM_SHA}", "romBytes": 950344, "sealSha256": "{SEAL_SHA}", '
+                f'"verification": "rocqchk", "romSha256": "{ROM_SHA}", "romBytes": 1028080, "sealSha256": "{SEAL_SHA}", '
                 '"axioms": ["Stdlib.Logic.Classical_Prop.classic"], "contractCommit": "abc123"}}\n',
     1234: '{"score": 1234, "metrics": {"claim": 1234, "finite": true, "prover": "rocq", "verification": "rocqchk", '
-          f'"romSha256": "{ROM_SHA}", "romBytes": 950344, "sealSha256": "{SEAL_SHA}", '
+          f'"romSha256": "{ROM_SHA}", "romBytes": 1028080, "sealSha256": "{SEAL_SHA}", '
           '"axioms": ["Stdlib.Logic.Classical_Prop.classic"], "contractCommit": "abc123"}}\n',
 }
 
 
 def result(literal="infinity", **changes):
-    return dict({"verified": True, "rom_bytes": 950344, "rom_sha256": ROM_SHA, "score_literal": literal,
+    return dict({"verified": True, "rom_bytes": 1028080, "rom_sha256": ROM_SHA, "score_literal": literal,
                  "axioms": ["Stdlib.Logic.Classical_Prop.classic"], "kernel_exit": 0,
                  "seal_sha256": SEAL_SHA}, **changes)
 
@@ -92,7 +92,7 @@ class Harness(unittest.TestCase):
         self.assertEqual((scored["score"], scored["scoreExact"]), (1e300, "1" + "0" * 300))
         self.assertEqual(scored["metrics"], {
             "claim": "infinity", "finite": False, "prover": "rocq", "verification": "rocqchk",
-            "romSha256": ROM_SHA, "romBytes": 950344, "sealSha256": SEAL_SHA,
+            "romSha256": ROM_SHA, "romBytes": 1028080, "sealSha256": SEAL_SHA,
             "axioms": ["Stdlib.Logic.Classical_Prop.classic"], "contractCommit": "abc123", **TIMING})
 
     def test_score_carries_minutes_and_timing_is_appended(self):

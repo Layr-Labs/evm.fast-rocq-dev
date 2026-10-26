@@ -81,7 +81,9 @@ python3 -m unittest discover -s verifier -p 'test_*.py' -v
 # A restored default-branch cache is reused only if it still matches its seal exactly.
 if ! seal_ok 2>/dev/null; then
   rm -f .artifacts/verifier-seal.json
-  timed build "${switch_exec[@]}" dune build -j 1
+  # Upstream documents -j 1. The heaviest certificate files (30.3 GiB RSS on the previous guest)
+  # form a dependency chain and never compile together, so 8 jobs fit the 128 GB runner.
+  timed build "${switch_exec[@]}" dune build -j 8
   for module in InitE.InitE.VerificationCore InitE.Baseline.BaselineCertificate; do
     timed "kernel-${module##*.}" "${switch_exec[@]}" rocq check -bytecode-compiler yes -silent -o \
       -Q _build/default/galette-theories Galette -Q _build/default/theories InitE "${module}"
