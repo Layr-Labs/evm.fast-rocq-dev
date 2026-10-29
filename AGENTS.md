@@ -21,7 +21,7 @@
   `Declare`, `Redirect`, `Extraction`, `Separate`, `Recursive`, `Cd`, `Include`, `Plugin`,
   `Export`. It also rejects unqualified `Load` and `Add`/`Remove` `LoadPath` or `ML Path`.
   The baseline package in `submission/` is the one `scripts/make_baseline_submission.py`
-  produces for the software-precompile guest (1,028,080-byte ROM, SHA-256 `44b6a6b8…69d04b`,
+  produces for the software-precompile guest (1,028,080-byte ROM, SHA-256 `2ce35ede…78ce6d`,
   claim `infinity`). Its `Solution.v`
   reuses the trusted `InitE.Baseline` library. Your sources may import Stdlib and any trusted
   `InitE` or `Galette` module.
